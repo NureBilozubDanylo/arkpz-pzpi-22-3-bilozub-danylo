@@ -1,0 +1,364 @@
+МІНІСТЕРСТВО ОСВІТИ І НАУКИ УКРАЇНИ
+ХАРКІВСЬКИЙ НАЦІОНАЛЬНИЙ УНІВЕРСИТЕТ РАДІОЕЛЕКТРОНІКИ
+
+
+Звіт
+з лабораторної роботи №3
+ з дисципліни «Аналіз та рефакторинг коду»
+на тему: «РОЗРОБКА БІЗНЕС-ЛОГІКИ ТА ФУНКЦІЙ АДМІНІСТРУВАННЯ СЕРВЕРНОЇ ЧАСТИНИ ПРОГРАМНОЇ СИСТЕМИ»
+
+
+
+
+
+Виконав:
+ студент групи ПЗПІ-22-3
+Білозуб Данило  Владиславович
+
+Перевірив:
+ст. викладач кафедри ПІ
+Сокорчук Ігор Петрович
+
+
+
+
+
+
+
+Харків 2024
+
+
+
+
+1 МЕТА РОБОТИ
+
+Розробити бізнес-логику та функції адміністрування серверної частини  програмної системи для контролю життя живих істот та кліматичних умов для них в зоомагазині.
+
+2 ХІД РОБОТИ
+Під час виконання лабораторної роботи було реалізовано бізнес логіку:
+•	Реєстрація та авторизація користувачів (створення нових користувачів з ролями  та використання jwt токенів для подальшої роботи з сервером)
+•	Розділення користувачів за ролями (admin, defaultUser) заборона виконання важливих запитів для defaultUser.
+•	Хешування паролів за допомогою алгоритму HS256 для додаткової безпеки.
+•	Обробка значення сенсорів та оповіщення користувачів про критичні  значення клімату.
+•	Зберігання історії кліматичних значень та  можливість перегляду різних звітів по клімату (за день, за місяць, середні значення та моду).
+•	Додавання нових або редагування існуючих тварин викликає функцію розрахунку оптимальних кліматичних умов для зоомагазину.
+•	Автоматична перевірка необхідності годування тварин та надсилання повідомлень про необхідність годування.
+•	Контроль запасів розхідників на магазині та повідомлення про необхідність поповнення.
+•	Автоматичне створенн резервних копій для запобігання критичних змін в базі  даних.
+Під час виконання лабораторної роботи було сформовано UML діаграми діяльності системи для процесів обробки запиту для додавання нової тварини в зоомагазин та автоматичне оновлення  кліматичних налаштувань, отримання кліматичних значення від датчику, обробки запиту про використання розхідників магазину та перевірки необхідності годування тварин, ці діаграми  наведено в додатку А. Також було сформовано UML діаграму взаємодії (послідовності) для створення нового користувача та його входу в систему, ця діаграма наведена в додатку Б.
+Відео з поясненнями наведено в додатку Г.
+
+ВИСНОВКИ
+
+Під час  виконання лабораторної роботи було розроблено бізнес-логіку та функції адміністрування серверної частини програмної системи для контролю життя живих істот та кліматичних умов для них в зоомагазині. Також було створено UML діаграми діяльності та взаємодії (послідовності).
+
+
+
+
+ДОДАТОК А
+Uml діаграми діяльності
+
+  
+Рисунок А.1 – Обробка запиту для додавання нової тварини в зоомагазин та автоматичне оновлення  кліматичних налаштувань
+
+ 
+Рисунок А.2 – Отримання кліматичних від датчику
+ 
+ 
+Рисунок А.3 – Обробка запиту про використання розхідників магазину
+
+ 
+Рисунок А.4 – Перевірка необхідності годування тварин
+
+ДОДАТОК Б 
+Uml діаграма взаємодії (послідовності)
+
+  
+Рисунок Б.1 – Створення нового користувача та його вхід в систему 
+
+ДОДАТОК В
+Фрагменти програмного коду
+
+В.1 – Логіка адміністрування (Обробка логіну та реєстрації, перевірка дозволів під час запиту)
+
+1 @router.post("/register", response_model=UserBase)
+2 def register_user(user: UserCreate, db: Session = Depends(get_db)):
+3     db_user = crud_user.get_user_by_username(db, username=user.username)
+4     if db_user:
+5         raise HTTPException(status_code=400, detail="Username already registered")
+6     return crud_user.create_user(db=db, user=user)
+7 
+8 @router.post("/login")
+9 def login_user(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+10     user = authenticate_user(db, form_data.username, form_data.password)
+11     if not user:
+12         raise HTTPException(
+13             status_code=status.HTTP_401_UNAUTHORIZED,
+14             detail="Incorrect username or password",
+15             headers={"WWW-Authenticate": "Bearer"},
+16         )
+17     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+18     access_token = create_access_token(
+19         data={"sub": user.username}, expires_delta=access_token_expires
+20     )
+21     return {"access_token": access_token, "token_type": "bearer"}
+22 
+23 @router.post("/token", response_model=Token)
+24 def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+25     user = authenticate_user(db, form_data.username, form_data.password)
+26     if not user:
+27         raise HTTPException(
+28             status_code=status.HTTP_401_UNAUTHORIZED,
+29             detail="Incorrect username or password",
+30             headers={"WWW-Authenticate": "Bearer"},
+31         )
+32     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+33     access_token = create_access_token(
+34         data={"sub": user.username}, expires_delta=access_token_expires
+35     )
+36     return {"access_token": access_token, "token_type": "bearer"}
+37 
+38 
+39 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
+40     credentials_exception = HTTPException(
+41         status_code=status.HTTP_401_UNAUTHORIZED,
+42         detail="Could not validate credentials",
+43         headers={"WWW-Authenticate": "Bearer"},
+44     )
+45     try:
+46         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+47         username: str = payload.get("sub")
+48         if username is None:
+49             raise credentials_exception
+50     except JWTError:
+51         raise credentials_exception
+52     user = get_user_by_username(db, username=username)
+53     if user is None:
+54         raise credentials_exception
+55     return user
+56 
+57 def get_current_admin_user(current_user: User = Depends(get_current_user)):
+58     if current_user.role != "admin":
+59         raise HTTPException(
+60             status_code=status.HTTP_403_FORBIDDEN,
+61             detail="You do not have permission to perform this action",
+62         )
+63     return current_user
+
+В.2 – Логіка додавання тварини та оновлення оптимальних кліматичних умов (математичні розрахунки  оптимальних значень)
+
+1 def create_animal(db: Session, animal: AnimalCreate):
+2     db_animal = Animal(
+3         name=animal.name,
+4         species=animal.species,
+5         breed=animal.breed,
+6         age=animal.age,
+7         sex=animal.sex,
+8         weight=animal.weight,
+9         health_info=animal.health_info,
+10         shop_id=animal.shop_id,
+11         temperature=animal.temperature,
+12         humidity=animal.humidity,
+13         light_intensity=animal.light_intensity,
+14         feeding_time=animal.feeding_time,
+15         food_weight=animal.food_weight,
+16         food_name=animal.food_name
+17     )
+18     db.add(db_animal)
+19     db.commit()
+20     db.refresh(db_animal)
+21 
+22     update_climate_settings(db, animal.shop_id)
+23 
+24     return db_animal
+25 
+26 # Delete
+27 def delete_animal(db: Session, animal_id: int):
+28     db_animal = db.query(Animal).filter(Animal.animal_id == animal_id).first()
+29     if db_animal:
+30         shop_id = db_animal.shop_id
+31         db.delete(db_animal)
+32         db.commit()
+33 
+34         update_climate_settings(db, shop_id)
+35     
+36     return db_animal
+37 
+38 def update_animal(db: Session, animal_id: int, animal_update: AnimalUpdate):
+39     db_animal = db.query(Animal).filter(Animal.animal_id == animal_id).first()
+40     if db_animal:
+41         for key, value in animal_update.dict(exclude_unset=True).items():
+42             setattr(db_animal, key, value)
+43         db.commit()
+44         db.refresh(db_animal)
+45 
+46     update_climate_settings(db, db_animal.shop_id)
+47     return db_animal
+48 
+49 def update_climate_settings(db: Session, shop_id: int):
+50     animals = db.query(Animal).filter(Animal.shop_id == shop_id).all()
+51     if animals:
+52         temperatures = [a.temperature for a in animals]
+53         humidities = [a.humidity for a in animals]
+54         light_intensities = [a.light_intensity for a in animals]
+55         weights = [a.weight for a in animals]
+56 
+57         # Temperature: Weighted median
+58         sorted_animals = sorted(animals, key=lambda a: a.temperature)
+59         cumulative_weights = np.cumsum([a.weight for a in sorted_animals])
+60         median_weight = cumulative_weights[-1] / 2
+61         weighted_median_temperature = next(a.temperature for a, cw in zip(sorted_animals, cumulative_weights) if cw >= median_weight)
+62 
+63         # Humidity: 75th percentile for high humidity needs, otherwise average between 25th and 75th percentile
+64         high_humidity_animals = [a for a in animals if a.humidity > 75]
+65         if high_humidity_animals:
+66             high_humidity_values = [a.humidity for a in high_humidity_animals]
+67             optimal_humidity = np.percentile(high_humidity_values, 75)
+68         else:
+69             lower_percentile = np.percentile(humidities, 25)
+70             upper_percentile = np.percentile(humidities, 75)
+71             optimal_humidity = (lower_percentile + upper_percentile) / 2
+72 
+73         # Light intensity: Highest light requirement, capped by median
+74         max_light_intensity = max(light_intensities)
+75         median_light_intensity = np.median(light_intensities)
+76         optimal_light_intensity = min(max_light_intensity, median_light_intensity)
+77 
+78         db_climate_settings = db.query(ClimateSettings).filter(ClimateSettings.shop_id == shop_id).first()
+79         if db_climate_settings:
+80             db_climate_settings.temperature = weighted_median_temperature
+81             db_climate_settings.humidity = optimal_humidity
+82             db_climate_settings.light_intensity = optimal_light_intensity
+83             db_climate_settings.updated_at = datetime.now()
+84         else:
+85             new_climate_settings = ClimateSettingsCreate(
+86                 temperature=weighted_median_temperature,
+87                 humidity=optimal_humidity,
+88                 light_intensity=optimal_light_intensity,
+89                 updated_at=datetime.now(),
+90                 shop_id=shop_id
+91             )
+92             db_climate_settings = ClimateSettings(**new_climate_settings.dict())
+93             db.add(db_climate_settings)
+94         
+95         db.commit()
+96         db.refresh(db_climate_settings)
+
+В.3 – Логіка отримання та обробки значення від сенсора
+
+1 @router.put("/{sensor_id}/value", response_model=Sensor1)
+2 def update_sensor_value(sensor_id: int, value: float, db: Session = Depends(get_db), current_user: User = Depends(get_current_admin_user)):
+3     db_sensor = crud_sensor.get_sensor(db, sensor_id=sensor_id)
+4     if db_sensor is None:
+5         raise HTTPException(status_code=404, detail="Sensor not found")
+6     
+7     db_sensor.current_value = value
+8     db.commit()
+9     db.refresh(db_sensor)
+10     
+11     db_climate_settings = db.query(ClimateSettings).filter(ClimateSettings.shop_id == db_sensor.shop_id).first()
+12     if db_climate_settings:
+13         warning_message = None
+14         if db_sensor.type == "temperature" and abs(db_sensor.current_value - db_climate_settings.temperature) > 3:
+15             warning_message = f"Warning: Sensor value {db_sensor.current_value} deviates from climate setting temperature {db_climate_settings.temperature} by more than 3 units."
+16         elif db_sensor.type == "humidity" and abs(db_sensor.current_value - db_climate_settings.humidity) > 3:
+17             warning_message = f"Warning: Sensor value {db_sensor.current_value} deviates from climate setting humidity {db_climate_settings.humidity} by more than 3 units."
+18         elif db_sensor.type == "light_intensity" and abs(db_sensor.current_value - db_climate_settings.light_intensity) > 3:
+19             warning_message = f"Warning: Sensor value {db_sensor.current_value} deviates from climate setting light intensity {db_climate_settings.light_intensity} by more than 3 units."
+20         
+21         if warning_message:
+22             print(warning_message)
+23             users_in_shop = crud_user_in_shop.get_users_in_shop_by_shop_id(db, shop_id=db_sensor.shop_id)
+24             for user_in_shop in users_in_shop:
+25                 notification = NotificationCreate(
+26                     user_id=user_in_shop.user_id,
+27                     message=warning_message,
+28                     timestamp=datetime.now()
+29                 )
+30                 crud_notification.create_notification(db=db, notification=notification)
+31     
+32     sensors = db.query(Sensor).filter(Sensor.shop_id == db_sensor.shop_id).all()
+33     temperature = humidity = light_intensity = None
+34     for sensor in sensors:
+35         if sensor.type == "temperature":
+36             temperature = sensor.current_value
+37         elif sensor.type == "humidity":
+38             humidity = sensor.current_value
+39         elif sensor.type == "light_intensity":
+40             light_intensity = sensor.current_value
+41     
+42     climate_history = ClimateHistoryCreate(
+43         temperature=temperature,
+44         humidity=humidity,
+45         light_intensity=light_intensity,
+46         record_date=datetime.now(),
+47         shop_id=db_sensor.shop_id
+48     )
+49     crud_climate_history.create_climate_history(db=db, climate_history=climate_history)
+50     
+51     return db_sensor
+
+В.4 – Логіка перевірки необхідності годування тварини
+
+1 def check_feeding_times(db: Session):
+2     now = datetime.now()
+3     ten_minutes_later = now + timedelta(minutes=10)
+4     animals = db.query(Animal).all()
+5     for animal in animals:
+6         feeding_times = animal.feeding_time.split(',')
+7         for feeding_time in feeding_times:
+8             feeding_datetime = datetime.strptime(feeding_time.strip(), "%H:%M").replace(year=now.year, month=now.month, day=now.day)
+9             if now <= feeding_datetime <= ten_minutes_later:
+10                 message = f"Time to feed {animal.name} ({animal.species}) in shop {animal.shop_id}."
+11                 print(message)
+12                 users_in_shop = crud_user_in_shop.get_users_in_shop_by_shop_id(db, shop_id=animal.shop_id)
+13                 for user_in_shop in users_in_shop:
+14                     notification = NotificationCreate(
+15                         user_id=user_in_shop.user_id,
+16                         message=message,
+17                         timestamp=now
+18                     )
+19                     crud_notification.create_notification(db=db, notification=notification)
+20 
+21 @app.on_event("startup")
+22 @repeat_every(seconds=600)  # 10 minutes
+23 def periodic_feeding_check():
+24     db = SessionLocal()
+25     try:
+26         check_feeding_times(db)
+27     finally:
+28         db.close()
+
+В.5 – Логіка обробки запиту використання розхідників
+
+1 @router.post("/deduct_supply", response_model=ShopSupplies)
+2 def deduct_supply(shop_supplies: DeductSupply, db: Session = Depends(get_db), current_user: User = Depends(get_current_admin_user)):
+3     db_shop_supplies = crud_shop_supplies.get_shop_supplies_by_shop_and_supply(db, shop_id=shop_supplies.shop_id, supply_id=shop_supplies.supply_id)
+4     if db_shop_supplies is None:
+5         raise HTTPException(status_code=404, detail="Shop supplies not found")
+6     
+7     db_shop_supplies.quantity -= shop_supplies.quantity
+8     if db_shop_supplies.quantity < 0:
+9         db_shop_supplies.quantity = 0
+10     
+11     db.commit()
+12     db.refresh(db_shop_supplies)
+13     
+14     if db_shop_supplies.quantity <= 5:
+15         warning_message = f"Warning: Supply {shop_supplies.supply_id} in shop {shop_supplies.shop_id} is low (quantity: {db_shop_supplies.quantity})."
+16         print(warning_message)
+17         users_in_shop = crud_user_in_shop.get_users_in_shop_by_shop_id(db, shop_id=shop_supplies.shop_id)
+18         for user_in_shop in users_in_shop:
+19             notification = NotificationCreate(
+20                 user_id=user_in_shop.user_id,
+21                 message=warning_message,
+22                 timestamp=datetime.now()
+23             )
+24             crud_notification.create_notification(db=db, notification=notification)
+25     
+26     return db_shop_supplies
+
+ДОДАТОК Г
+Відео з поясненнями
+
+https://youtu.be/vuDRJwhG8sE - посилання на відео з поясненнями.
